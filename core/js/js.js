@@ -1292,6 +1292,14 @@ function initCore() {
 
 	}
 
+	OC.files = new OC.Files.Client({
+		host: location.host,
+		port: location.port,
+		// TODO
+		root: OC.linkToRemoteBase('webdav'),
+		useHTTPS: location.protocol === 'https:'
+	});
+
 }
 
 $(document).ready(initCore);

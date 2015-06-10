@@ -408,6 +408,9 @@ class OC {
 		OC_Util::addScript("apps");
 		OC_Util::addVendorScript('snapjs/dist/latest/snap');
 
+		OC_Util::addVendorScript('js-webdav-client/dist-unminified');
+		OC_Util::addScript('jsocclient');
+
 		// avatars
 		if (\OC::$server->getSystemConfig()->getValue('enable_avatars', true) === true) {
 			\OC_Util::addScript('placeholder');
