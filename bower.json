@@ -1,6 +1,6 @@
 {
   "name": "ownCloud",
-  "version": "8.0 pre alpha",
+  "version": "8.1 pre alpha",
   "homepage": "https://www.owncloud.org",
   "license": "AGPL",
   "private": true,
@@ -25,6 +25,7 @@
     "zxcvbn": "*",
     "snapjs": "~2.0.0-rc1",
     "strengthify": "0.4.1",
-    "underscore": "~1.6.0"
+    "underscore": "~1.6.0",
+    "js-webdav-client": "git@github.com:sara-nl/js-webdav-client.git#~1.0.1"
   }
 }
