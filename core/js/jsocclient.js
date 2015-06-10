@@ -8,19 +8,111 @@
  *
  */
 
+/* global nl */
+
 (function() {
 
 	var FileInfo = function(data) {
-		this.path = data.path;
+		var path = data.path;
+		this.path = OC.dirname(path);
+		this.name = OC.basename(path);
 		this.mtime = data.mtime;
 		this.etag = data.etag;
 		this.permissions = data.permissions;
 		this.size = data.size;
-		this.mime = data.mime;
+		this.mimetype = data.mimetype;
 		this._props = data._props;
+
+		// TODO: isSharedMount and other props
+
+		if (this.mimetype === 'httpd/unix-directory') {
+			this.type = 'dir';
+		} else {
+			this.type = 'file';
+			this.isPreviewAvailable = true;
+		}
 	};
 
 	FileInfo.prototype = {
+		/**
+		 * File id
+		 *
+		 * @type int
+		 */
+		id: null,
+
+		/**
+		 * File name
+		 *
+		 * @type String
+		 */
+		name: null,
+
+		/**
+		 * Path leading to the file, without the file name.
+		 *
+		 * @type String
+		 */
+		path: null,
+
+		/**
+		 * Mime type
+		 *
+		 * @type String
+		 */
+		mimetype: null,
+
+		/**
+		 * File type. 'file'  for files, 'dir' for directories.
+		 *
+		 * @type String
+		 * @deprecated rely on mimetype instead
+		 */
+		type: 'file',
+
+		/**
+		 * Permissions.
+		 *
+		 * @see OC#PERMISSION_ALL for permissions
+		 * @type int
+		 */
+		permissions: null,
+
+		/**
+		 * Modification time
+		 *
+		 * @type int
+		 */
+		mtime: null,
+
+		/**
+		 * Etag
+		 *
+		 * @type String
+		 */
+		etag: null,
+
+		/**
+		 * Whether the file is a share mount point
+		 *
+		 * @type boolean
+		 */
+		isShareMountPoint: false,
+
+		/**
+		 * Whether previews are supported for this file's mime type
+		 *
+		 * @type boolean
+		 * @deprecated infer from mime type
+		 */
+		isPreviewAvailable: false,
+
+		/**
+		 * URL path to the mime type icon
+		 *
+		 * @deprecated infer from the mime type
+		 */
+		icon: null
 	};
 
 	/**
@@ -36,6 +128,10 @@
 	var Client = function(options) {
 		this._root = options.root;
 
+		if (!options.port) {
+			// workaround in case port is null or empty
+			options.port = undefined;
+		}
 		this.client = new nl.sara.webdav.Client(options);
 	};
 
@@ -65,6 +161,8 @@
 		 */
 		_buildPath: function() {
 			var path = '';
+			var lastArg = arguments[arguments.length - 1];
+			var trailingSlash = lastArg.charAt(lastArg.length - 1) === '/';
 			_.each(arguments, function(section) {
 				// trim leading slashes
 				while (section.charAt(0) === '/') {
@@ -79,17 +177,11 @@
 
 				path = path + '/' + section;
 			});
+			if (trailingSlash) {
+				// add it back
+				path += '/';
+			}
 			return path;
-		},
-
-		/**
-		 * Convert the WebDAV permissions format to OC format
-		 *
-		 * @param {String} permissions permissions string
-		 * 
-		 * @return {int} integer value
-		 */
-		_parsePermissions: function() {
 		},
 
 		/**
@@ -105,8 +197,12 @@
 				path = path.substr(this._root.length);
 			}
 
+			if (path.charAt(path.length - 1) === '/') {
+				path = path.substr(0, path.length - 1);
+			}
+
 			var data = {
-				path: path,
+				path: decodeURIComponent(path),
 				mtime: response.getProperty(Client.NS_DAV, 'getlastmodified').getParsedValue(),
 				etag: response.getProperty(Client.NS_DAV, 'getetag').getParsedValue(),
 				size: response.getProperty(Client.NS_OWNCLOUD, 'size').getParsedValue(),
@@ -115,15 +211,15 @@
 			
 			var contentType = response.getProperty(Client.NS_DAV, 'getcontenttype');
 			if (contentType && contentType.status === 200) {
-				data.mime = contentType.getParsedValue();
+				data.mimetype = contentType.getParsedValue();
 			}
 
 			var resType = response.getProperty(Client.NS_DAV, 'resourcetype');
 			var isFile = true;
-			if (!data.mime && resType && resType.status === 200 && resType.xmlvalue) {
+			if (!data.mimetype && resType && resType.status === 200 && resType.xmlvalue) {
 				var xmlvalue = resType.xmlvalue[0];
 				if (xmlvalue.namespaceURI === Client.NS_DAV && xmlvalue.localName === 'collection') {
-					data.mime = 'httpd/unix-directory';
+					data.mimetype = 'httpd/unix-directory';
 					isFile = false;
 				}
 			}
@@ -198,14 +294,14 @@
 		 * Lists the contents of a directory
 		 *
 		 * @param {String} path path to retrieve
-		 * @param {Array} [properties] list of webdav properties to
-		 * retrieve
 		 * @param {Function} callback callback that receives an array
 		 * of files as parameter
+		 * @param {boolean} [includeParent=false] set to true to keep
+		 * the parent folder in the result list
 		 *
 		 * @return {Promise} promise 
 		 */
-		list: function(path, properties, callback) {
+		list: function(path, callback, includeParent) {
 			if (!path) {
 				path = '';
 			}
@@ -216,12 +312,17 @@
 				promise.then(callback);
 			}
 
-			var callback = function(status, body, headers) {
-				deferred.resolve(self._parseResult(body));
-			}
-			var result = this.client.propfind(
+			this.client.propfind(
 				this._buildPath(this._root, path),
-				callback,
+				function(status, body) {
+					// TODO: handle error cases like 404
+					var results = self._parseResult(body);
+					if (!includeParent) {
+						// remove root dir, the first entry
+						results.shift();
+					}
+					deferred.resolve(results);
+				},
 				1,
 				this._getPropfindProperties()
 			);
@@ -232,20 +333,172 @@
 		 * Returns the file info of a given path.
 		 *
 		 * @param {String} path path 
+		 * @param {Function} callback callback that receives
 		 * @param {Array} [properties] list of webdav properties to
 		 * retrieve
 		 *
-		 * @return {OC.Files.FileInfo} file info
-		 * @throws FileNotFoundException
+		 * @return {Promise} promise
 		 */
-		getFileInfo: function(path, properties) {
+		getFileInfo: function(path, callback) {
+			if (!path) {
+				path = '';
+			}
+			var self = this;
+			var deferred = $.Deferred();
+			var promise = deferred.promise();
+			if (callback) {
+				promise.then(callback);
+			}
+
+			this.client.propfind(
+				this._buildPath(this._root, path),
+				function(status, body) {
+					// TODO: handle error cases like 404
+					deferred.resolve(self._parseResult(body)[0]);
+				},
+				0,
+				this._getPropfindProperties()
+			);
+			return promise;
 		},
 
 		/**
-		 * 
+		 * Returns the contents of the given file.
+		 *
+		 * @param {String} path path to file
+		 * @param {Function} callback callback that receives the file content
+		 *
+		 * @return {Promise}
 		 */
-		getFileContents: function(path) {
-		}
+		getFileContents: function(path, callback) {
+			if (!path) {
+				throw 'Missing argument "path"';
+			}
+			var self = this;
+			var deferred = $.Deferred();
+			var promise = deferred.promise();
+			if (callback) {
+				promise.then(callback);
+			}
+
+			this.client.get(
+				this._buildPath(this._root, path),
+				function(status, body) {
+					// TODO: handle error cases like 404
+					deferred.resolve(self._parseResult(body)[0]);
+				}
+			);
+			return promise;
+		},
+
+		/**
+		 * Puts the given data into the given file.
+		 *
+		 * @param {String} path path to file
+		 * @param {Function} callback callback that receives the file content
+		 *
+		 * @return {Promise}
+		 */
+		putFileContents: function(path, callback, body) {
+			if (!path) {
+				throw 'Missing argument "path"';
+			}
+			var deferred = $.Deferred();
+			var promise = deferred.promise();
+			if (callback) {
+				promise.then(callback);
+			}
+
+			this.client.put(
+				this._buildPath(this._root, path),
+				function(status, body) {
+					// TODO: handle error cases like 404
+					deferred.resolve();
+				},
+				body || ''
+			);
+			return promise;
+		},
+		
+		_simpleCall: function(method, path, callback) {
+			if (!path) {
+				throw 'Missing argument "path"';
+			}
+
+			var deferred = $.Deferred();
+			var promise = deferred.promise();
+			if (callback) {
+				promise.then(callback);
+			}
+
+			this.client[method](
+				this._buildPath(this._root, path),
+				function(status, body) {
+					// TODO: handle error cases like 404
+					deferred.resolve();
+				}
+			);
+		},
+
+		/**
+		 * Creates a directory
+		 *
+		 * @param {String} path path to create
+		 * @param {Function} callback callback that receives the file content
+		 *
+		 * @return {Promise}
+		 */
+		createDirectory: function(path, callback) {
+			return this._simpleCall('mkcol', path, callback);
+		},
+
+		/**
+		 * Deletes a file or directory
+		 *
+		 * @param {String} path path to delete
+		 * @param {Function} callback callback that receives the file content
+		 *
+		 * @return {Promise}
+		 */
+		remove: function(path, callback) {
+			return this._simpleCall('remove', path, callback);
+		},
+
+		/**
+		 * Moves path to another path
+		 *
+		 * @param {String} path path to move
+		 * @param {String} destinationPath destination path
+		 * @param {Function} callback callback that receives an array
+		 * of files as parameter
+		 * @param {boolean} [allowOverwrite=false] true to allow overwriting,
+		 * false otherwise
+		 *
+		 * @return {Promise} promise 
+		 */
+		move: function(path, destinationPath, callback, allowOverwrite) {
+			if (!path) {
+				throw 'Missing argument "path"';
+			}
+			if (!destinationPath) {
+				throw 'Missing argument "destinationPath"';
+			}
+			var deferred = $.Deferred();
+			var promise = deferred.promise();
+			if (callback) {
+				promise.then(callback);
+			}
+
+			this.client.move(
+				this._buildPath(this._root, path),
+				function(status) {
+					deferred.resolve(status);
+				},
+				this._buildPath(this._root, destinationPath),
+				allowOverwrite ? nl.sara.webdav.Client.SILENT_OVERWRITE : nl.sara.webdav.Client.FAIL_ON_OVERWRITE
+			);
+			return promise;
+		},
 
 	};
 
@@ -253,5 +506,7 @@
 		OC.Files = {};
 	}
 	OC.Files.Client = Client;
+
+	OC.Files.FileInfo = FileInfo;
 })();
 

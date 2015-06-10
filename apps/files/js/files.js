@@ -140,12 +140,25 @@
 		 * @param dir optional directory in which the file name is, defaults to the current directory
 		 */
 		getDownloadUrl: function(filename, dir) {
-			if ($.isArray(filename)) {
-				filename = JSON.stringify(filename);
+			if (!_.isArray(filename)) {
+				filename = [filename];
 			}
+
+			if (filename.length === 1) {
+				var pathSections = dir.split('/');
+				pathSections.push(filename[0]);
+				var encodedPath = '';
+				_.each(pathSections, function(section) {
+					if (section !== '') {
+						encodedPath += '/' + encodeURIComponent(section);
+					}
+				});
+				return OC.linkToRemoteBase('webdav') + encodedPath;
+			}
+
 			var params = {
 				dir: dir,
-				files: filename
+				files: JSON.stringify(filename)
 			};
 			return this.getAjaxUrl('download', params);
 		},

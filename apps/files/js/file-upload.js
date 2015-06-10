@@ -653,34 +653,52 @@ OC.Upload = {
 					var name = FileList.getUniqueName(newname);
 					switch(type) {
 						case 'file':
-							$.post(
-								OC.filePath('files', 'ajax', 'newfile.php'),
-								{
-									dir: FileList.getCurrentDirectory(),
-									filename: name
-								},
+							OC.files.putFileContents(
+								FileList.getCurrentDirectory() + '/' + name,
 								function(result) {
+									// TODO: icon ?
+									FileList.add({
+										name: name,
+										// TODO correct mime type
+										mimetype: 'text/plain',
+										type: 'file',
+										mtime: (new Date()).getTime(),
+										size: 0,
+										permissions: 31
+									}, {animate: true, scrollTo: true});
+									// TODO: result
+									/*
 									if (result.status === 'success') {
 										FileList.add(result.data, {animate: true, scrollTo: true});
 									} else {
 										OC.dialogs.alert(result.data.message, t('core', 'Could not create file'));
 									}
-								}
+									*/
+								},
+								''
 							);
 							break;
 						case 'folder':
-							$.post(
-								OC.filePath('files','ajax','newfolder.php'),
-								{
-									dir: FileList.getCurrentDirectory(),
-									foldername: name
-								},
+							OC.files.createDirectory(
+								FileList.getCurrentDirectory() + '/' + name,
 								function(result) {
+									// TODO: etag, etc
+									FileList.add({
+										name: name,
+										mimetype: 'httpd/unix-directory',
+										type: 'dir',
+										mtime: (new Date()).getTime(),
+										size: 0,
+										permissions: 31
+									}, {animate: true, scrollTo: true});
+									// TODO: result
+									/*
 									if (result.status === 'success') {
 										FileList.add(result.data, {animate: true, scrollTo: true});
 									} else {
 										OC.dialogs.alert(result.data.message, t('core', 'Could not create folder'));
 									}
+									*/
 								}
 							);
 							break;
